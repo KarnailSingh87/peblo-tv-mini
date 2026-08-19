@@ -1,0 +1,145 @@
+name: CI Pipeline - Peblo TV Mini
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  backend-lint-and-test:
+    name: Backend Lint & Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: peblo_user
+          POSTGRES_PASSWORD: peblo_password
+          POSTGRES_DB: peblo_tv_test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install flake8 pytest pytest-asyncio
+
+      - name: 1. Backend Linting
+        run: |
+          # Fails if syntax errors, undefined variables, or invalid imports exist
+          flake8 backend --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: 2. Backend Automated Tests (with PostgreSQL)
+        env:
+          DATABASE_URL: postgresql://peblo_user:peblo_password@localhost:5432/peblo_tv_test_db
+          STORAGE_TYPE: local
+          LOCAL_STORAGE_DIR: ./storage
+          SECRET_KEY: ci-test-secret-key-32characters-long-min
+          PYTHONPATH: .
+        run: |
+          alembic upgrade head
+          pytest backend/tests -v
+
+  cms-lint-and-build:
+    name: CMS Frontend Lint & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install CMS Dependencies
+        working-directory: frontend/cms
+        run: npm ci || npm install
+
+      - name: 3. CMS Lint & Type Check
+        working-directory: frontend/cms
+        run: npx tsc --noEmit
+
+      - name: 4. CMS Production Build
+        working-directory: frontend/cms
+        run: npm run build
+
+  viewer-lint-and-build:
+    name: Viewer Frontend Lint & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Viewer Dependencies
+        working-directory: frontend/viewer
+        run: npm ci || npm install
+
+      - name: 5. Viewer Lint & Type Check
+        working-directory: frontend/viewer
+        run: npx tsc --noEmit
+
+      - name: 6. Viewer Production Build
+        working-directory: frontend/viewer
+        run: npm run build
+
+  docker-image-builds:
+    name: Docker Image Verification
+    needs: [backend-lint-and-test, cms-lint-and-build, viewer-lint-and-build]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 7a. Build Backend Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: backend/Dockerfile
+          push: false
+          tags: peblo-tv-backend:ci-check
+
+      - name: 7b. Build CMS Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend/cms
+          file: ./frontend/cms/Dockerfile
+          push: false
+          tags: peblo-tv-cms:ci-check
+
+      - name: 7c. Build Viewer Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend/viewer
+          file: ./frontend/viewer/Dockerfile
+          push: false
+          tags: peblo-tv-viewer:ci-check
