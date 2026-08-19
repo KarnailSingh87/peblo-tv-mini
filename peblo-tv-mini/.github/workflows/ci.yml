@@ -1,0 +1,39 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  backend-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+      - name: Run Pytest
+        env:
+          PYTHONPATH: .
+          DATABASE_URL: sqlite:///./ci_test.db
+        run: |
+          pytest backend/tests -v
+
+  frontend-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Check CMS Build
+        run: |
+          cd cms && npm install && npm run build
+      - name: Check Viewer Build
+        run: |
+          cd viewer && npm install && npm run build

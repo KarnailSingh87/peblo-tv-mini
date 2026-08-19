@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.db
+test_peblo.db
+.pytest_cache/
+.coverage
+
+# Node
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Storage runtime
+storage/
